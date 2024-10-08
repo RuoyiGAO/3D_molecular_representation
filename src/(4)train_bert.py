@@ -15,7 +15,19 @@ warnings.filterwarnings("ignore")
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
-def main(train_corpus_path, val_corpus_path, tokenizer_path, pretrained_model, output_dir, max_length, masked_percentage):
+def main(
+        train_corpus_path, 
+        val_corpus_path, 
+        tokenizer_path, 
+        pretrained_model, 
+        output_dir, 
+        max_length, 
+        masked_percentage, 
+        numepoch,
+        per_device_train_batch_size,
+        per_device_eval_batch_size,
+        logging_steps
+        ):
     """
     Main function to train a BERT model for masked language modeling.
 
@@ -27,6 +39,9 @@ def main(train_corpus_path, val_corpus_path, tokenizer_path, pretrained_model, o
         output_dir (str): Directory to save model outputs.
         max_length (int): Maximum sequence length for tokenization.
         masked_percentage (float): Percentage of tokens to mask during training.
+        numepoch (int): Number of training epoch.
+        per_device_train_batch_size (int): Batch size for train.
+        per_device_eval_batch_size (int): Batch size for validation.
     """
 
     # Load tokenizer
@@ -64,12 +79,12 @@ def main(train_corpus_path, val_corpus_path, tokenizer_path, pretrained_model, o
         output_dir=output_dir,
         evaluation_strategy="epoch",
         learning_rate=1e-5,
-        per_device_train_batch_size=128,
-        per_device_eval_batch_size=128,
-        num_train_epochs=20,
+        per_device_train_batch_size=per_device_train_batch_size,
+        per_device_eval_batch_size=per_device_eval_batch_size,
+        num_train_epochs=numepoch,
         weight_decay=0.01,
         logging_dir='../logs',
-        logging_steps=10,
+        logging_steps=logging_steps,
         save_steps=10000,
     )
 
@@ -101,8 +116,19 @@ if __name__ == "__main__":
     parser.add_argument('--output_dir', type=str, required=True, help='Directory to save model outputs')
     parser.add_argument('--max_length', type=int, default=200, help='Maximum length of input sequences')
     parser.add_argument('--masked_percentage', type=float, default=0.35, help='Percentage of tokens to mask')
+    # RG: add new argument
+    parser.add_argument('--numepoch', type=int, default=20, help='Number of Training Epoch')
+    parser.add_argument('--per_device_train_batch_size', type=int, default=128, help='Batch Size for Train')
+    parser.add_argument('--per_device_eval_batch_size', type=int, default=128, help='Batch Size for Validation')
+    parser.add_argument('--logging_steps', type=int, default=10, help='logging_steps')
     
     args = parser.parse_args()
     
     # Call the main function with command-line arguments
-    main(args.train_corpus_path, args.val_corpus_path, args.tokenizer_path, args.pretrained_model, args.output_dir, args.max_length, args.masked_percentage)
+    main(args.train_corpus_path, args.val_corpus_path, 
+         args.tokenizer_path, args.pretrained_model, 
+         args.output_dir, args.max_length, 
+         args.masked_percentage, args.numepoch,
+         args.per_device_train_batch_size,
+         args.per_device_eval_batch_size,
+         args.logging_steps)
