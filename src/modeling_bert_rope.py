@@ -109,7 +109,16 @@ class BertSinusoidalPositionalEmbedding(nn.Embedding):
     """This module produces sinusoidal positional embeddings of any length."""
 
     def __init__(self, num_positions: int, embedding_dim: int, padding_idx: Optional[int] = None) -> None:
-        super().__init__(num_positions, embedding_dim)
+        #num_positions - onfig.max_position_embeddings: related to sequence length
+        ## The maximum sequence length that this model might ever be used with. 
+        ## Typically set this to something large just in case (e.g., 512 or 1024 or 2048).
+        #embedding_dim: config.hidden_size // config.num_attention_heads
+
+        # RG: here I set num_positions = 2400, the range of corrdinates is -9.9339-11.2631. 
+        # I want to set the range of position to be -12.00 -  12.00
+        num_positions = 2400 
+        self.embedding_dim = embedding_dim
+        super().__init__(num_positions, embedding_dim//3)
         self.weight = self._init_weight(self.weight)
 
     @staticmethod
@@ -119,9 +128,13 @@ class BertSinusoidalPositionalEmbedding(nn.Embedding):
         the 2nd half of the vector. [dim // 2:]
         """
         n_pos, dim = out.shape
+
+        # get initial weight of each position index. here from -1200 to 1200. 
+        # scale to 0 - 2400
         position_enc = np.array(
             [[pos / np.power(10000, 2 * (j // 2) / dim) for j in range(dim)] for pos in range(n_pos)]
         )
+
         out.requires_grad = False  # set early to avoid an error in pytorch-1.8+
         sentinel = dim // 2 if dim % 2 == 0 else (dim // 2) + 1
         out[:, 0:sentinel] = torch.FloatTensor(np.sin(position_enc[:, 0::2]))
@@ -130,14 +143,43 @@ class BertSinusoidalPositionalEmbedding(nn.Embedding):
         return out
 
     @torch.no_grad()
-    def forward(self, input_ids_shape: torch.Size, past_key_values_length: int = 0) -> torch.Tensor:
+    def forward(self, 
+                position_3d: torch.Tensor, # RG: 3d postion for each molecule, [bsz, seq_len ,3] eg. [4, 2 ,3]
+                input_ids_shape: torch.Size, 
+                past_key_values_length: int = 0) -> torch.Tensor:
         """`input_ids_shape` is expected to be [bsz x seqlen]."""
-        bsz, seq_len = input_ids_shape[:2]
-        positions = torch.arange(
-            past_key_values_length, past_key_values_length + seq_len, dtype=torch.long, device=self.weight.device
-        )
-        return super().forward(positions)
+        '''
+        past_key_values (`tuple(tuple(torch.FloatTensor))` of length `config.n_layers` with each tuple having 4 tensors of shape `(batch_size, num_heads, sequence_length - 1, embed_size_per_head)`):
+            Contains precomputed key and value hidden states of the attention blocks. Can be used to speed up decoding.
+            If `past_key_values` are used, the user can optionally input only the last `decoder_input_ids` (those that
+            don't have their past key value states given to this model) of shape `(batch_size, 1)` instead of all
+            `decoder_input_ids` of shape `(batch_size, sequence_length)`.
 
+        past_key_values_length = past_key_values[0][0].shape[2] if past_key_values is not None else 0
+        '''
+        # bsz, seq_len = input_ids_shape[:2]
+        # bsz, seq_len, n_dim = position_3d.shape
+        # positions = torch.arange(
+        #     past_key_values_length, past_key_values_length + seq_len, dtype=torch.long, device=self.weight.device
+        # )
+        position_3d = position_3d.to(dtype=torch.long, device=self.weight.device)
+        #RG: get the embedding for position_3d: [bsz, seq_len, 3, embedding_dim//3]
+        tmp = super().forward(position_3d) #torch.Size([4, 2, 3, 170])
+
+        #dimN: embedding for dimensionN
+        dim1, dim2, dim3 = tmp.chunk(3, dim=-2) # dim1: torch.Size([4, 2, 1, 170])
+        #dimNsin: embedding for dimensionNsin
+        dim1sin, dim1cos = dim1.chunk(2, dim=-1) # dim1sin: torch.Size([4, 2, 1, 85])
+        dim2sin, dim2cos = dim2.chunk(2, dim=-1)
+        dim3sin, dim3cos = dim3.chunk(2, dim=-1)
+        #sin: [dim1sin, dim2sin, dim3sin]
+        sin = torch.cat((dim1sin, dim2sin, dim3sin), dim=3).squeeze(2) # torch.Size([4, 2, 255])
+        #cos: [dim1cos, dim2cos, dim3cos]
+        cos = torch.cat((dim1cos, dim2cos, dim3cos), dim=3).squeeze(2) #torch.Size([4, 2, 255])
+
+        entire_emb = torch.cat((sin, cos), dim=-1) #torch.Size([4, 2, 510])
+
+        return torch.nn.functional.pad(entire_emb, (0, self.embedding_dim - entire_emb.shape[-1])) #torch.Size([4, 2, 512])
 
 def load_tf_weights_in_bert(model, config, tf_checkpoint_path):
     """Load tf checkpoints in a pytorch model."""
@@ -213,7 +255,7 @@ def load_tf_weights_in_bert(model, config, tf_checkpoint_path):
 
 
 class BertEmbeddings(nn.Module):
-    """Construct the embeddings from word, position and token_type embeddings."""
+    """Construct the embeddings from word and token_type embeddings."""
 
     def __init__(self, config):
         super().__init__()
@@ -465,9 +507,9 @@ class BertSelfAttention(nn.Module):
     @staticmethod
     def apply_rotary_position_embeddings(sinusoidal_pos, query_layer, key_layer, value_layer=None):
         # https://kexue.fm/archives/8265
-        # sin [batch_size, num_heads, sequence_length, embed_size_per_head//2]
-        # cos [batch_size, num_heads, sequence_length, embed_size_per_head//2]
-        sin, cos = sinusoidal_pos.chunk(2, dim=-1)
+        # sin [batch_size, num_heads, sequence_length, 3, embed_size_per_head//2]
+        # cos [batch_size, num_heads, sequence_length, 3, embed_size_per_head//2]
+        sin, cos = sinusoidal_pos.chunk(2, dim=-1) 
         # sin [θ0,θ1,θ2......θd/2-1] -> sin_pos [θ0,θ0,θ1,θ1,θ2,θ2......θd/2-1,θd/2-1]
         sin_pos = torch.stack([sin, sin], dim=-1).reshape_as(sinusoidal_pos)
         # cos [θ0,θ1,θ2......θd/2-1] -> cos_pos [θ0,θ0,θ1,θ1,θ2,θ2......θd/2-1,θd/2-1]
@@ -683,13 +725,15 @@ class BertEncoder(nn.Module):
 
         # RG: It seems like sinusoidal positional embedding is a basic postional embedding method,
         # It is not related to RoPE.
+        # 
         self.embed_positions = BertSinusoidalPositionalEmbedding(
             config.max_position_embeddings, config.hidden_size // config.num_attention_heads
         )
 
     def forward(
         self,
-        hidden_states: torch.Tensor,
+        position_3d: torch.Tensor, # RG: 3d postion for each molecule, [bsz, seq_len ,3]
+        hidden_states: torch.Tensor, # embed_output
         attention_mask: Optional[torch.FloatTensor] = None,
         head_mask: Optional[torch.FloatTensor] = None,
         encoder_hidden_states: Optional[torch.FloatTensor] = None,
@@ -714,8 +758,10 @@ class BertEncoder(nn.Module):
 
         # RG: add this as what roformer do
         past_key_values_length = past_key_values[0][0].shape[2] if past_key_values is not None else 0
-        # [sequence_length, embed_size_per_head] -> [batch_size, num_heads, sequence_length, embed_size_per_head]
-        sinusoidal_pos = self.embed_positions(hidden_states.shape[:-1], past_key_values_length)[None, None, :, :]
+        # orgin for roformer 1-d case: [sequence_length, embed_size_per_head] -> [batch_size, num_heads, sequence_length, embed_size_per_head]
+        # RG: [bsz, seq_len, embedding_dim] -> [bsz, num_heads, seq_len, embedding_dim]
+        ## eg. torch.Size([4, 2, 512]) -> torch.Size([4, 1, 2, 512])
+        sinusoidal_pos = self.embed_positions(position_3d, hidden_states.shape[:-1], past_key_values_length)[:, None, :, :]
 
         next_decoder_cache = () if use_cache else None
         for i, layer_module in enumerate(self.layer):
@@ -1061,6 +1107,7 @@ class BertModel(BertPreTrainedModel):
     def forward(
         self,
         input_ids: Optional[torch.Tensor] = None,
+        position_3d: Optional[torch.Tensor] = None, # RG: [batch_size, sequence_length, 3]
         attention_mask: Optional[torch.Tensor] = None,
         token_type_ids: Optional[torch.Tensor] = None,
         #position_ids: Optional[torch.Tensor] = None, # RG: comment as what roformer do
@@ -1153,6 +1200,10 @@ class BertModel(BertPreTrainedModel):
         # and head_mask is converted to shape [num_hidden_layers x batch x num_heads x seq_length x seq_length]
         head_mask = self.get_head_mask(head_mask, self.config.num_hidden_layers)
 
+        # One difference between bert and roformer here is that 
+        # bert takes position info into this embedding.
+        # But for roformer this embedding just takes word and token type. 
+        # So, 3d information does not add here. 
         embedding_output = self.embeddings(
             input_ids=input_ids,
             #position_ids=position_ids, # RG: commend it as what roformer do
@@ -1160,7 +1211,10 @@ class BertModel(BertPreTrainedModel):
             inputs_embeds=inputs_embeds,
             #past_key_values_length=past_key_values_length,# RG: commend it as what roformer do
         )
+
+        # 3d information encoded in the embed_positions using BertSinusoidalPositionalEmbedding
         encoder_outputs = self.encoder(
+            position_3d,
             embedding_output,
             attention_mask=extended_attention_mask,
             head_mask=head_mask,
@@ -1516,8 +1570,8 @@ class BertForMaskedLM(BertPreTrainedModel):
 
         outputs = self.bert(
             input_ids,
-            position_3d, 
-            attention_mask=attention_mask, #RG: [batch_size, sequence_length, 3]
+            position_3d, #RG: [batch_size, sequence_length, 3]
+            attention_mask=attention_mask, 
             token_type_ids=token_type_ids,
             #position_ids=position_ids,
             head_mask=head_mask,
