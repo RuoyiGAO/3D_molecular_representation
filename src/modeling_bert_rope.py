@@ -385,7 +385,7 @@ class BertSelfAttention(nn.Module):
         self,
         hidden_states: torch.Tensor,
         attention_mask: Optional[torch.FloatTensor] = None,
-        sinusoidal_pos=None, #RG: an extra argument used in roformer
+        sinusoidal_pos=None, #RG: an extra argument used in roformer [bsz, num_heads, seq_len, embedding_dim]
         head_mask: Optional[torch.FloatTensor] = None,
         encoder_hidden_states: Optional[torch.FloatTensor] = None,
         encoder_attention_mask: Optional[torch.FloatTensor] = None,
@@ -502,13 +502,14 @@ class BertSelfAttention(nn.Module):
         return outputs
 
 
-    # RG: just copy and paste, need check again 
-    # ACTION
+
     @staticmethod
     def apply_rotary_position_embeddings(sinusoidal_pos, query_layer, key_layer, value_layer=None):
         # https://kexue.fm/archives/8265
-        # sin [batch_size, num_heads, sequence_length, 3, embed_size_per_head//2]
-        # cos [batch_size, num_heads, sequence_length, 3, embed_size_per_head//2]
+
+        # sinusoidal_pos: [bsz, num_heads, seq_len, embedding_dim]
+        # sin [batch_size, num_heads, sequence_length, embed_size_per_head//2]
+        # cos [batch_size, num_heads, sequence_length, embed_size_per_head//2]
         sin, cos = sinusoidal_pos.chunk(2, dim=-1) 
         # sin [θ0,θ1,θ2......θd/2-1] -> sin_pos [θ0,θ0,θ1,θ1,θ2,θ2......θd/2-1,θd/2-1]
         sin_pos = torch.stack([sin, sin], dim=-1).reshape_as(sinusoidal_pos)
@@ -575,7 +576,7 @@ class BertAttention(nn.Module):
         self,
         hidden_states: torch.Tensor,
         attention_mask: Optional[torch.FloatTensor] = None,
-        sinusoidal_pos=None, # RG: an extra argument from roformer
+        sinusoidal_pos=None, # RG: an extra argument from roformer [bsz, num_heads, seq_len, embedding_dim]
         head_mask: Optional[torch.FloatTensor] = None,
         encoder_hidden_states: Optional[torch.FloatTensor] = None,
         encoder_attention_mask: Optional[torch.FloatTensor] = None,
@@ -585,7 +586,7 @@ class BertAttention(nn.Module):
         self_outputs = self.self(
             hidden_states,
             attention_mask,
-            sinusoidal_pos, # RG: an extra argument from roformer
+            sinusoidal_pos, # RG: an extra argument from roformer [bsz, num_heads, seq_len, embedding_dim]
             head_mask,
             encoder_hidden_states,
             encoder_attention_mask,
@@ -645,7 +646,7 @@ class BertLayer(nn.Module):
         self,
         hidden_states: torch.Tensor,
         attention_mask: Optional[torch.FloatTensor] = None,
-        sinusoidal_pos=None, #RG: an extra argument from Roformer 
+        sinusoidal_pos=None, #RG: an extra argument from Roformer  [bsz, num_heads, seq_len, embedding_dim]
         head_mask: Optional[torch.FloatTensor] = None,
         encoder_hidden_states: Optional[torch.FloatTensor] = None,
         encoder_attention_mask: Optional[torch.FloatTensor] = None,
@@ -657,7 +658,7 @@ class BertLayer(nn.Module):
         self_attention_outputs = self.attention(
             hidden_states,
             attention_mask,
-            sinusoidal_pos, #RG: an extra argument from Roformer 
+            sinusoidal_pos, #RG: an extra argument from Roformer [bsz, num_heads, seq_len, embedding_dim]
             head_mask,
             output_attentions=output_attentions,
             past_key_value=self_attn_past_key_value,
@@ -684,7 +685,7 @@ class BertLayer(nn.Module):
             cross_attention_outputs = self.crossattention(
                 attention_output,
                 attention_mask,
-                sinusoidal_pos, #RG: an extra argument from Roformer 
+                sinusoidal_pos, #RG: an extra argument from Roformer [bsz, num_heads, seq_len, embedding_dim]
                 head_mask,
                 encoder_hidden_states,
                 encoder_attention_mask,
