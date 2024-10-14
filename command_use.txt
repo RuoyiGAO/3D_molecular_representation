@@ -6,3 +6,7 @@ step4:
 python '(4)train_bert.py' --train_corpus_path FG-enhanced-SMILES_10K.pkl --val_corpus_path FG-enhanced-SMILES_10K_val.pkl --tokenizer_path output --output_dir train_output --numepoch 1 --logging_steps 100 --per_device_train_batch_size 32 --per_device_eval_batch_size 32
 python '(4)train_bert_rope.py' --train_corpus_path FG-enhanced-SMILES_10K.pkl --val_corpus_path FG-enhanced-SMILES_10K_val.pkl --tokenizer_path output --output_dir train_output --numepoch 1 --logging_steps 100 --per_device_train_batch_size 32 --per_device_eval_batch_size 32
 
+
+
+with open("../src/FG-enhanced-SMILES_10K.pkl", 'rb') as f:
+     train_corpus = pickle.load(f)

@@ -4,6 +4,8 @@ from rdkit.Chem import MolFromSmiles as s2m
 from helpers import get_new_smiles_rep
 import pickle
 import argparse
+from rdkit import Chem
+import re
 
 # Function to process the molecular data from a CSV file and save the processed SMILES strings to a pickle file.
 def process_data(csv_path, save_path):
@@ -44,12 +46,25 @@ def process_data(csv_path, save_path):
             if len(new_smiles.split()) > 512:
                 new_smiles = ' '.join(new_smiles.split()[:512])
             
-            # Append the processed SMILES to the corpus
-            CORPUS.append(new_smiles.strip())
+            
+            new_smiles = new_smiles.strip()
             
             # Uncomment if you want to append labels to a separate list
             # LABEL.append(df.loc[i, 'label'])
-        
+            mol_with_H = Chem.AddHs(mol)
+
+            hydrogen_count = 0
+            for atom in mol_with_H.GetAtoms():
+                if atom.GetAtomicNum() == 1:
+                    hydrogen_count += 1
+
+            new_smiles = new_smiles + " H"*hydrogen_count
+            new_smiles = re.sub(r'\[([^\]]*)\]', lambda x: f"[{x.group(1).replace(' ', '')}]", new_smiles)
+            # Append the processed SMILES to the corpus
+            CORPUS.append(new_smiles.strip())
+
+            
+            
         # Save intermediate results every 5 million iterations to avoid memory overflow
         if i % 5000000 == 0:
             with open(save_path, 'wb') as f:
@@ -64,15 +79,20 @@ def process_data(csv_path, save_path):
     with open(save_path.replace('pkl', 'txt'), 'w') as f:
         f.write(txt)
 
+    df["FG_SMILES"] = CORPUS
+    csv_path = 'FG_smiles_positions_qm9_test.csv'
+    df.to_csv(csv_path, index=False)
+
+
 if __name__ == '__main__':
     # Argument parser for running the script from the command line
     parser = argparse.ArgumentParser(description='Process molecular data and save it as a pickle file.')
     
     # Argument for the input CSV file path
-    parser.add_argument('csv_path', type=str, help="Path to the input CSV file containing molecule data.")
+    parser.add_argument('--csv_path', type=str, help="Path to the input CSV file containing molecule data.")
     
     # Argument for the output pickle file path
-    parser.add_argument('save_path', type=str, help="Path to save the output pickle file.")
+    parser.add_argument('--save_path', type=str, help="Path to save the output pickle file.")
 
     args = parser.parse_args()
     

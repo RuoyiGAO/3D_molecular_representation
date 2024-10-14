@@ -16,7 +16,6 @@ warnings.filterwarnings("ignore")
 # Set the device to GPU if available
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-
 def main(
         train_corpus_path, 
         val_corpus_path, 
@@ -60,9 +59,9 @@ def main(
         val_corpus = pickle.load(f)
 
     # Create datasets
-    train_dataset = Dataset.from_dict({'text': train_corpus})
+    train_dataset = Dataset.from_dict({'text': train_corpus},{'position':train_position})
     train_dataset = train_dataset.map(encode_sentence, batched=True)
-    val_dataset = Dataset.from_dict({'text': val_corpus})
+    val_dataset = Dataset.from_dict({'text': val_corpus},{'position':val_position})
     val_dataset = val_dataset.map(encode_sentence, batched=True)
 
     # Define the data collator for masked language modeling (MLM)
