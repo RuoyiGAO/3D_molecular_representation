@@ -10,6 +10,7 @@ from modeling_bert_rope import BertForMaskedLM
 import random
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import Dataset, DataLoader
+import wandb
 
 
 # Ignore warnings
@@ -55,6 +56,21 @@ class DataCollatorForMLM:
             'positions': positions,
             'labels': labels
         }
+    
+def evaluate_model(model, dataloader, device):
+    model.eval()
+    losses = []
+    for batch in dataloader:
+        with torch.no_grad():
+            input_ids = batch['input_ids'].to(device)
+            positions = batch['positions'].to(device)
+            labels = batch['labels'].to(device)
+            
+            outputs = model(input_ids=input_ids, position_3d=positions, labels=labels)
+            loss = outputs.loss
+            losses.append(loss.item())
+
+    return sum(losses)
 
 
 def main(
@@ -62,14 +78,14 @@ def main(
         train_position_path,
         val_corpus_path, 
         val_position_path,
-        tokenizer_path, 
-        pretrained_model, 
-        output_dir, 
         max_length, 
         masked_percentage, 
+        per_device_train_batch_size,
+        per_device_eval_batch_size,
         numepoch,
-        per_device_train_batch_size=32,
-        per_device_eval_batch_size=32,
+        output_dir = None, 
+        tokenizer_path = "thaonguyen217/farm_molecular_representation", 
+        pretrained_model = "thaonguyen217/farm_molecular_representation", 
         logging_steps =100
         ):
     """
@@ -89,13 +105,13 @@ def main(
     """
 
     # Load tokenizer and Data collator
-    tokenizer = PreTrainedTokenizerFast.from_pretrained("output_1014")
-    data_collator = DataCollatorForMLM(tokenizer)
+    tokenizer = PreTrainedTokenizerFast.from_pretrained(tokenizer_path)
+    data_collator = DataCollatorForMLM(tokenizer, mlm_probability = masked_percentage)
     
     # Load corpus
-    with open("/home/gaoruoyi/3D_molecular_representation/src/corpus_position_1014_qm9_test/corpus_qm9_test.pkl", 'rb') as f:
+    with open(train_corpus_path, 'rb') as f:
         train_corpus = pickle.load(f) 
-    with open("/home/gaoruoyi/3D_molecular_representation/src/corpus_position_1014_qm9_test/corpus_qm9_test.pkl", 'rb') as f:
+    with open(val_corpus_path, 'rb') as f:
         val_corpus = pickle.load(f)  
     max_length = 200 
     input_ids_train = []
@@ -112,9 +128,9 @@ def main(
 
 
     # Load positions and do padding for posiitons the shape for each molecule will be [max_length, 3]
-    with open("/home/gaoruoyi/3D_molecular_representation/src/corpus_position_1014_qm9_test/positions_qm9_test.pkl", 'rb') as f:
+    with open(train_position_path, 'rb') as f:
         train_positon = pickle.load(f) 
-    with open("/home/gaoruoyi/3D_molecular_representation/src/corpus_position_1014_qm9_test/positions_qm9_test.pkl", 'rb') as f:
+    with open(val_position_path, 'rb') as f:
         val_positon = pickle.load(f) 
 
    
@@ -125,9 +141,8 @@ def main(
 
     train_positon = torch.nn.utils.rnn.pad_sequence(tensor_data_train, batch_first=True, padding_value=11200)
     train_positon = torch.where(train_positon == 11200, 0, train_positon)
-    print(train_positon.shape)
-    input()
-    torch.save(train_positon, 'train_positon.pt')
+    # print(train_positon.shape)
+    # torch.save(train_positon, 'train_positon.pt')
 
 
     val_positon[0] = val_positon[0] + [[100,100,100]]*(max_length-len(val_positon[0]))
@@ -137,7 +152,7 @@ def main(
 
     val_positon = torch.nn.utils.rnn.pad_sequence(tensor_data_val, batch_first=True, padding_value=11200)
     val_positon = torch.where(val_positon == 11200, 0, val_positon)
-    torch.save(val_positon, 'val_positon.pt')
+    # torch.save(val_positon, 'val_positon.pt')
     
 
     # Create datasets for train and evaluation
@@ -154,19 +169,30 @@ def main(
     dataloader_val = DataLoader(dataset_val, batch_size=per_device_eval_batch_size, shuffle=True, collate_fn=data_collator)
 
     # Load the pretrained BERT model
-    model = BertForMaskedLM.from_pretrained("thaonguyen217/farm_molecular_representation").to(device)
+    model = BertForMaskedLM.from_pretrained(pretrained_model).to(device)
     model.resize_token_embeddings(len(tokenizer))
     
     # trian model
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-5)
     model.train()
+
+    run = wandb.init(project="Bert with RoPE training test",
+                    config={"batch_size": per_device_train_batch_size,
+                            "learning_rate": 1e-5,
+                            "epochs": numepoch})
+    
+    
     
     print("Train Begin")
     for epoch in range(numepoch):
-        print("Epoch "+str(epoch))
-        for batch in dataloader_train:
+        print("Epoch "+str(epoch+1))
+        losses = []
+        # for batch in dataloader_train:
+        for step, batch in enumerate(tqdm(dataloader_train, position=1, leave=True, desc="Step")):
             optimizer.zero_grad()
             input_ids = batch['input_ids'].to(device)
+            # print("input_ids.shape")
+            # print(input_ids.shape)
             positions = batch['positions'].to(device)
             #print(positions)
             #input()
@@ -178,43 +204,45 @@ def main(
             loss.backward()
             optimizer.step()
 
-            print(f"Epoch: {epoch+1}, Loss: {loss.item()}")
+            wandb.log({"loss": loss})
+
+            losses.append(loss.item())
+
+        print(f"Epoch: {epoch+1}, Loss: {sum(losses)}")
+        # evaluation per epoch
+        eval_loss_sum = evaluate_model(model, dataloader_val, device)
+        wandb.log({"loss_eval": eval_loss_sum.item()})
 
     print("Training complete!")
     
-
-    # # Train the model
-    # trainer.train()
-    # eval_results = trainer.evaluate()
-    # print(f"Perplexity: {math.exp(eval_results['eval_loss']):.2f}")
-
-
 if __name__ == "__main__":
     import argparse
     
     # Set up argument parser
     parser = argparse.ArgumentParser(description='Train BERT for Masked Language Modeling')
     parser.add_argument('--train_corpus_path', type=str, required=True, help='Path to the training corpus')
+    parser.add_argument('--train_position_path', type=str, required=True, help='Path to the positions for training corpus')
     parser.add_argument('--val_corpus_path', type=str, required=True, help='Path to the validation corpus')
-    parser.add_argument('--tokenizer_path', type=str, required=True, help='Path to the tokenizer')
-    parser.add_argument('--pretrained_model', type=str, default='bert-base-uncased', help='Path to the pretrained model')
-    parser.add_argument('--output_dir', type=str, required=True, help='Directory to save model outputs')
+    parser.add_argument('--val_position_path', type=str, required=True, help='Path to the positions for validation corpus')
     parser.add_argument('--max_length', type=int, default=200, help='Maximum length of input sequences')
     parser.add_argument('--masked_percentage', type=float, default=0.35, help='Percentage of tokens to mask')
-    # RG: add new argument
-    parser.add_argument('--numepoch', type=int, default=20, help='Number of Training Epoch')
     parser.add_argument('--per_device_train_batch_size', type=int, default=128, help='Batch Size for Train')
     parser.add_argument('--per_device_eval_batch_size', type=int, default=128, help='Batch Size for Validation')
+    parser.add_argument('--numepoch', type=int, default=20, help='Number of Training Epoch')
+    parser.add_argument('--output_dir', type=str, default=None, help='Directory to save model outputs')
+    parser.add_argument('--tokenizer_path', type=str, default='thaonguyen217/farm_molecular_representation', help='Path to the tokenizer')
+    parser.add_argument('--pretrained_model', type=str, default='thaonguyen217/farm_molecular_representation', help='Path to the pretrained model')
     parser.add_argument('--logging_steps', type=int, default=10, help='logging_steps')
     
     args = parser.parse_args()
     
     # Call the main function with command-line arguments
     main(
-         args.train_corpus_path, args.val_corpus_path, 
-         args.tokenizer_path, args.pretrained_model, 
-         args.output_dir, args.max_length, 
-         args.masked_percentage, args.numepoch,
+         args.train_corpus_path, args.train_position_path, 
+         args.train_corpus_path, args.val_position_path, 
+         args.max_length, args.masked_percentage,
          args.per_device_train_batch_size,
          args.per_device_eval_batch_size,
+         args.numepoch, args.output_dir,
+         args.tokenizer_path, args.pretrained_model,
          args.logging_steps)

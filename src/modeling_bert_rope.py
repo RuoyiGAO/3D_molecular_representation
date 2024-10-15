@@ -218,7 +218,7 @@ class BertSinusoidalPositionalEmbedding(nn.Embedding):
         # print(dim3cos.shape)#[100, 200, 1, 10]
 
         #sin: [dim1sin, dim2sin, dim3sin]
-        print("sss")
+        # print("sss")
         sin = torch.cat((dim1sin, dim2sin, dim3sin), dim=3).squeeze(2) # torch.Size([4, 2, 255])
         #cos: [dim1cos, dim2cos, dim3cos]
         cos = torch.cat((dim1cos, dim2cos, dim3cos), dim=3).squeeze(2) #torch.Size([4, 2, 255])
@@ -230,14 +230,14 @@ class BertSinusoidalPositionalEmbedding(nn.Embedding):
         
         outputcos = torch.nn.functional.pad(cos, (0, self.embedding_dim1//2 - sin.shape[-1]))
         outputsin = torch.nn.functional.pad(sin, (0, self.embedding_dim1//2 - cos.shape[-1]))
-        print("outputcos")
-        print(outputcos.shape)
-        print("outputsin")
-        print(outputsin.shape)
+        # print("outputcos")
+        # print(outputcos.shape) #torch.Size([100, 200, 32])
+        # print("outputsin")
+        # print(outputsin.shape) #torch.Size([100, 200, 32])
 
         entire_emb = torch.cat((outputcos, outputsin), dim=-1) #torch.Size([4, 2, 510]) 
-        print("entire_emb.shape")
-        print(entire_emb.shape) #[100, 200, 60]
+        # print("entire_emb.shape")
+        # print(entire_emb.shape) #torch.Size([100, 200, 64])
         # print("bbbself.embedding_dim1")
         # print(self.embedding_dim1)
         #output = torch.nn.functional.pad(entire_emb, (0, self.embedding_dim1 - entire_emb.shape[-1])) #torch.Size([4, 2, 512])
