@@ -60,7 +60,7 @@ class DataCollatorForMLM:
 def evaluate_model(model, dataloader, device):
     model.eval()
     losses = []
-    for batch in dataloader:
+    for step, batch in enumerate(tqdm(dataloader, position=1, leave=False, desc="Step")):
         with torch.no_grad():
             input_ids = batch['input_ids'].to(device)
             positions = batch['positions'].to(device)
@@ -183,12 +183,11 @@ def main(
     
     
     
-    print("Train Begin")
+    print("Training Begin")
     for epoch in range(numepoch):
-        print("Epoch "+str(epoch+1))
         losses = []
         # for batch in dataloader_train:
-        for step, batch in enumerate(tqdm(dataloader_train, position=1, leave=True, desc="Step")):
+        for step, batch in enumerate(tqdm(dataloader_train, position=1, leave=False, desc="Step")):
             optimizer.zero_grad()
             input_ids = batch['input_ids'].to(device)
             # print("input_ids.shape")
@@ -210,8 +209,10 @@ def main(
 
         print(f"Epoch: {epoch+1}, Loss: {sum(losses)}")
         # evaluation per epoch
+        print(f"Evaluating for {epoch+1}")
         eval_loss_sum = evaluate_model(model, dataloader_val, device)
-        wandb.log({"loss_eval": eval_loss_sum.item()})
+        wandb.log({"loss_eval": eval_loss_sum})
+        print(f"Evaluation loss for {epoch+1}: {eval_loss_sum}")
 
     print("Training complete!")
     
