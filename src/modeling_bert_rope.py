@@ -116,8 +116,10 @@ class BertSinusoidalPositionalEmbedding(nn.Embedding):
 
         # RG: here I set num_positions = 2400, the range of corrdinates is -9.9339-11.2631. 
         # I want to set the range of position to be -12.00 -  12.00
-        num_positions = 2400 
-        self.embedding_dim = embedding_dim
+        num_positions = 2400  
+        self.embedding_dim1 = embedding_dim
+        # print("aaaself.embedding_dim")
+        # print(self.embedding_dim1) #64
         super().__init__(num_positions, embedding_dim//3)
         self.weight = self._init_weight(self.weight)
 
@@ -137,7 +139,12 @@ class BertSinusoidalPositionalEmbedding(nn.Embedding):
 
         out.requires_grad = False  # set early to avoid an error in pytorch-1.8+
         sentinel = dim // 2 if dim % 2 == 0 else (dim // 2) + 1
-        out[:, 0:sentinel] = torch.FloatTensor(np.sin(position_enc[:, 0::2]))
+        # print("sentinel")
+        # print(sentinel) #11
+        #sin11
+        #cos10
+        #number of sin is one more than number of cos
+        out[:, 0:sentinel] = torch.FloatTensor(np.sin(position_enc[:, 0::2])) 
         out[:, sentinel:] = torch.FloatTensor(np.cos(position_enc[:, 1::2]))
         out.detach_()
         return out
@@ -165,21 +172,80 @@ class BertSinusoidalPositionalEmbedding(nn.Embedding):
         position_3d = position_3d.to(dtype=torch.long, device=self.weight.device)
         #RG: get the embedding for position_3d: [bsz, seq_len, 3, embedding_dim//3]
         tmp = super().forward(position_3d) #torch.Size([4, 2, 3, 170])
+        # print("tmp.shape")
+        # print(tmp.shape) # torch.Size([100, 200, 3, 21])
 
         #dimN: embedding for dimensionN
         dim1, dim2, dim3 = tmp.chunk(3, dim=-2) # dim1: torch.Size([4, 2, 1, 170])
+        # print("dim1.shape")
+        # print(dim1.shape) #[100, 200, 1, 21]
+        # print("dim2.shape")
+        # print(dim2.shape) #[100, 200, 1, 21]
+        # print("dim3.shape")
+        # print(dim3.shape) #[100, 200, 1, 21]
         #dimNsin: embedding for dimensionNsin
-        dim1sin, dim1cos = dim1.chunk(2, dim=-1) # dim1sin: torch.Size([4, 2, 1, 85])
-        dim2sin, dim2cos = dim2.chunk(2, dim=-1)
-        dim3sin, dim3cos = dim3.chunk(2, dim=-1)
+        sentinel = self.embedding_dim // 2 if self.embedding_dim % 2 == 0 else (self.embedding_dim // 2) + 1
+        if self.embedding_dim % 2 != 0:
+            dim1sin = dim1[:,:,:,0:sentinel-1]
+            dim2sin = dim2[:,:,:,0:sentinel-1]
+            dim3sin = dim3[:,:,:,0:sentinel-1]
+            dim1cos = dim1[:,:,:,sentinel:]
+            dim2cos = dim2[:,:,:,sentinel:]
+            dim3cos = dim3[:,:,:,sentinel:]
+        else:
+            dim1sin = dim1[:,:,:,0:sentinel]
+            dim2sin = dim2[:,:,:,0:sentinel]
+            dim3sin = dim3[:,:,:,0:sentinel]
+            dim1cos = dim1[:,:,:,sentinel:]
+            dim2cos = dim2[:,:,:,sentinel:]
+            dim3cos = dim3[:,:,:,sentinel:]
+            
+        # dim1sin, dim1cos = dim1.chunk(2, dim=-1) # dim1sin: torch.Size([4, 2, 1, 85])
+        # dim2sin, dim2cos = dim2.chunk(2, dim=-1)
+        # dim3sin, dim3cos = dim3.chunk(2, dim=-1)
+
+        # print("dim1sin.shape") 
+        # print(dim1sin.shape)#[100, 200, 1, 10]
+        # print("dim1cos.shape")
+        # print(dim1cos.shape)#[100, 200, 1, 10]
+        # print("dim2sin.shape")
+        # print(dim2sin.shape)#[100, 200, 1, 10]
+        # print("dim2cos.shape")
+        # print(dim2cos.shape)#[100, 200, 1, 10]
+        # print("dim3sin.shape")
+        # print(dim3sin.shape)#[100, 200, 1, 10]
+        # print("dim3cos.shape")
+        # print(dim3cos.shape)#[100, 200, 1, 10]
+
         #sin: [dim1sin, dim2sin, dim3sin]
+        print("sss")
         sin = torch.cat((dim1sin, dim2sin, dim3sin), dim=3).squeeze(2) # torch.Size([4, 2, 255])
         #cos: [dim1cos, dim2cos, dim3cos]
         cos = torch.cat((dim1cos, dim2cos, dim3cos), dim=3).squeeze(2) #torch.Size([4, 2, 255])
 
-        entire_emb = torch.cat((sin, cos), dim=-1) #torch.Size([4, 2, 510])
+        # print("sin.shape")
+        # print(sin.shape) #[100, 200, 30]
+        # print("cos.shape")
+        # print(cos.shape) #[100, 200, 30]
+        
+        outputcos = torch.nn.functional.pad(cos, (0, self.embedding_dim1//2 - sin.shape[-1]))
+        outputsin = torch.nn.functional.pad(sin, (0, self.embedding_dim1//2 - cos.shape[-1]))
+        print("outputcos")
+        print(outputcos.shape)
+        print("outputsin")
+        print(outputsin.shape)
 
-        return torch.nn.functional.pad(entire_emb, (0, self.embedding_dim - entire_emb.shape[-1])) #torch.Size([4, 2, 512])
+        entire_emb = torch.cat((outputcos, outputsin), dim=-1) #torch.Size([4, 2, 510]) 
+        print("entire_emb.shape")
+        print(entire_emb.shape) #[100, 200, 60]
+        # print("bbbself.embedding_dim1")
+        # print(self.embedding_dim1)
+        #output = torch.nn.functional.pad(entire_emb, (0, self.embedding_dim1 - entire_emb.shape[-1])) #torch.Size([4, 2, 512])
+        output = entire_emb
+        # print("output.shape")
+        # print(output.shape) #torch.Size([100, 200, 64])
+
+        return output
 
 def load_tf_weights_in_bert(model, config, tf_checkpoint_path):
     """Load tf checkpoints in a pytorch model."""
@@ -261,11 +327,12 @@ class BertEmbeddings(nn.Module):
         super().__init__()
 
         #RG: In Roformer, default value for embedding_size is hidden_size
-        self.word_embeddings = nn.Embedding(config.vocab_size, config.embedding_size, padding_idx=config.pad_token_id)
+        #self.word_embeddings = nn.Embedding(config.vocab_size, config.embedding_size, padding_idx=config.pad_token_id)
+        self.word_embeddings = nn.Embedding(config.vocab_size, config.hidden_size, padding_idx=config.pad_token_id)
         # RG: comment this line as what Roformer do
         #self.position_embeddings = nn.Embedding(config.max_position_embeddings, config.hidden_size)
         #self.token_type_embeddings = nn.Embedding(config.type_vocab_size, config.hidden_size)
-        self.token_type_embeddings = nn.Embedding(config.type_vocab_size, config.embedding_size)
+        self.token_type_embeddings = nn.Embedding(config.type_vocab_size, config.hidden_size)
 
         # self.LayerNorm is not snake-cased to stick with TensorFlow model variable name and be able to load
         # any TensorFlow checkpoint file
@@ -350,7 +417,7 @@ class BertSelfAttention(nn.Module):
         self.num_attention_heads = config.num_attention_heads
         self.attention_head_size = int(config.hidden_size / config.num_attention_heads)
         self.all_head_size = self.num_attention_heads * self.attention_head_size
-
+        self.hidden_size = config.hidden_size
         self.query = nn.Linear(config.hidden_size, self.all_head_size)
         self.key = nn.Linear(config.hidden_size, self.all_head_size)
         self.value = nn.Linear(config.hidden_size, self.all_head_size)
@@ -358,6 +425,7 @@ class BertSelfAttention(nn.Module):
         self.dropout = nn.Dropout(config.attention_probs_dropout_prob)
 
         self.is_decoder = config.is_decoder
+        self.rotary_value = True
         # rotary_value is an argument in roformer's config
         # self.rotary_value = config.rotary_value
         
@@ -392,7 +460,12 @@ class BertSelfAttention(nn.Module):
         past_key_value: Optional[Tuple[Tuple[torch.FloatTensor]]] = None,
         output_attentions: Optional[bool] = False,
     ) -> Tuple[torch.Tensor]:
+        # print("aaa")
+        # print(self.hidden_size)
+        # print(hidden_states.shape)
+        # print("aaa")
         mixed_query_layer = self.query(hidden_states)
+        # print("vvv")
         # RG: I add it as what roformer do
         query_layer = self.transpose_for_scores(mixed_query_layer)
 
@@ -421,7 +494,7 @@ class BertSelfAttention(nn.Module):
             value_layer = self.transpose_for_scores(self.value(hidden_states))
             if sinusoidal_pos is not None:
                 # RG: rotary_value should be true, since RoPE have to be used
-                if self.rotary_value:
+                if True:
                     query_layer, key_layer, value_layer = self.apply_rotary_position_embeddings(
                         sinusoidal_pos, query_layer, key_layer, value_layer
                     )
@@ -510,7 +583,16 @@ class BertSelfAttention(nn.Module):
         # sinusoidal_pos: [bsz, num_heads, seq_len, embedding_dim]
         # sin [batch_size, num_heads, sequence_length, embed_size_per_head//2]
         # cos [batch_size, num_heads, sequence_length, embed_size_per_head//2]
+        # print("sinusoidal_pos.shape")
+        # print(sinusoidal_pos.shape)
+        # input()
         sin, cos = sinusoidal_pos.chunk(2, dim=-1) 
+        # print("sin.shape")
+        # print(sin.shape)
+        # input()
+        # print("cos.shape")
+        # print(cos.shape)
+        # input()
         # sin [θ0,θ1,θ2......θd/2-1] -> sin_pos [θ0,θ0,θ1,θ1,θ2,θ2......θd/2-1,θd/2-1]
         sin_pos = torch.stack([sin, sin], dim=-1).reshape_as(sinusoidal_pos)
         # cos [θ0,θ1,θ2......θd/2-1] -> cos_pos [θ0,θ0,θ1,θ1,θ2,θ2......θd/2-1,θd/2-1]
@@ -654,6 +736,10 @@ class BertLayer(nn.Module):
         output_attentions: Optional[bool] = False,
     ) -> Tuple[torch.Tensor]:
         # decoder uni-directional self-attention cached key/values tuple is at positions 1,2
+        # print("CCC")
+        # print(past_key_value)
+        # print(type(past_key_value))
+        # print("CCC")
         self_attn_past_key_value = past_key_value[:2] if past_key_value is not None else None
         self_attention_outputs = self.attention(
             hidden_states,
@@ -727,6 +813,11 @@ class BertEncoder(nn.Module):
         # RG: It seems like sinusoidal positional embedding is a basic postional embedding method,
         # It is not related to RoPE.
         # 
+        # print("config.hidden_size")
+        # print(config.hidden_size)
+        # print("config.num_attention_heads")
+        # print(config.num_attention_heads)
+        # print()
         self.embed_positions = BertSinusoidalPositionalEmbedding(
             config.max_position_embeddings, config.hidden_size // config.num_attention_heads
         )
@@ -762,7 +853,9 @@ class BertEncoder(nn.Module):
         # orgin for roformer 1-d case: [sequence_length, embed_size_per_head] -> [batch_size, num_heads, sequence_length, embed_size_per_head]
         # RG: [bsz, seq_len, embedding_dim] -> [bsz, num_heads, seq_len, embedding_dim]
         ## eg. torch.Size([4, 2, 512]) -> torch.Size([4, 1, 2, 512])
+        
         sinusoidal_pos = self.embed_positions(position_3d, hidden_states.shape[:-1], past_key_values_length)[:, None, :, :]
+        #sinusoidal_pos = None
 
         next_decoder_cache = () if use_cache else None
         for i, layer_module in enumerate(self.layer):
@@ -771,6 +864,7 @@ class BertEncoder(nn.Module):
 
             layer_head_mask = head_mask[i] if head_mask is not None else None
             past_key_value = past_key_values[i] if past_key_values is not None else None
+            
 
             if self.gradient_checkpointing and self.training:
 
@@ -790,6 +884,10 @@ class BertEncoder(nn.Module):
                     encoder_attention_mask,
                 )
             else:
+                # print("Bbb")
+                # print(type(past_key_value))
+                # print("Bbb")
+
                 layer_outputs = layer_module(
                     hidden_states,
                     attention_mask,
@@ -1074,8 +1172,8 @@ class BertModel(BertPreTrainedModel):
         self.embeddings = BertEmbeddings(config)
 
         #RG: add this line as what roformer do
-        if config.embedding_size != config.hidden_size:
-            self.embeddings_project = nn.Linear(config.embedding_size, config.hidden_size)
+        if config.hidden_size != config.hidden_size:
+            self.embeddings_project = nn.Linear(config.hidden_size, config.hidden_size)
         
         self.encoder = BertEncoder(config)
 
@@ -1161,6 +1259,12 @@ class BertModel(BertPreTrainedModel):
         else:
             raise ValueError("You have to specify either input_ids or inputs_embeds")
 
+        # print("Aaaaa")
+        # print(input_shape)
+        # input()
+        # print(input_ids.size())
+        # input()
+        # print("Aaaaa")
         batch_size, seq_length = input_shape
         device = input_ids.device if input_ids is not None else inputs_embeds.device
 
@@ -1568,6 +1672,11 @@ class BertForMaskedLM(BertPreTrainedModel):
         """
 
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
+        # print("bbbb")
+        # print(input_ids.shape)
+        # input()
+        # print(position_3d.shape)
+        # input()
 
         outputs = self.bert(
             input_ids,

@@ -57,6 +57,7 @@ def main(
     with open(val_corpus_path, 'rb') as f:
         val_corpus = pickle.load(f)
 
+
     # Create datasets
     train_dataset = Dataset.from_dict({'text': train_corpus})
     train_dataset = train_dataset.map(encode_sentence, batched=True)

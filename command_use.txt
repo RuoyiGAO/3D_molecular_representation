@@ -4,7 +4,7 @@ step3:
 python '(3)train_tokenizer.py' --corpus_path ../data/FG-enhanced-SMILES_10K.txt --save_path /output
 step4:
 python '(4)train_bert.py' --train_corpus_path FG-enhanced-SMILES_10K.pkl --val_corpus_path FG-enhanced-SMILES_10K_val.pkl --tokenizer_path output --output_dir train_output --numepoch 1 --logging_steps 100 --per_device_train_batch_size 32 --per_device_eval_batch_size 32
-python '(4)train_bert_rope.py' --train_corpus_path FG-enhanced-SMILES_10K.pkl --val_corpus_path FG-enhanced-SMILES_10K_val.pkl --tokenizer_path output --output_dir train_output --numepoch 1 --logging_steps 100 --per_device_train_batch_size 32 --per_device_eval_batch_size 32
+python '(4)train_bert_rope.py' --train_corpus_path /home/gaoruoyi/3D_molecular_representation/src/corpus_position_1014_qm9_test/corpus_qm9_test.pkl --val_corpus_path /home/gaoruoyi/3D_molecular_representation/src/corpus_position_1014_qm9_test/corpus_qm9_test.pkl --tokenizer_path output_1014 --output_dir train_output_1014 --numepoch 1 --logging_steps 100 --per_device_train_batch_size 32 --per_device_eval_batch_size 32
 
 
 
